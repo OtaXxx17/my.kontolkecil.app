@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#050810">
+<title>CYBERCAM // SURVEILLANCE</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+:root {
+  --bg: #050810;
+  --panel: rgba(10, 20, 35, 0.85);
+  --border: rgba(0, 240, 255, 0.25);
+  --cyan: #00f0ff;
+  --magenta: #ff00aa;
+  --green: #00ff88;
+  --amber: #ffaa00;
+  --red: #ff3355;
+  --fg: #e0f7ff;
+  --muted: #6a8aa8;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; height: 100%; width: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Share Tech Mono', monospace;
+  overflow: hidden; /* Mencegah scroll di mobile */
+  position: fixed;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: 
+    linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  z-index: 0;
+  animation: gridMove 20s linear infinite;
+  pointer-events: none;
+}
+@keyframes gridMove { 0% { transform: translate(0, 0); } 100% { transform: translate(40px, 40px); } }
+
+.font-display { font-family: 'Orbitron', sans-serif; }
+.glow-cyan { text-shadow: 0 0 10px var(--cyan), 0 0 20px rgba(0, 240, 255, 0.5); }
+
+#appContainer {
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  z-index: 1;
+}
+
+/* Camera Section */
+.cam-frame { position: relative; flex: 1; overflow: hidden; background: #000;}
+.video-canvas {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.video-canvas.no-mirror { transform: none; }
+
+/* Overlays */
+.hud-overlay {
+  position: absolute; inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+.corner {
+  position: absolute;
+  width: 32px; height: 32px;
+  border: 2px solid var(--cyan);
+  filter: drop-shadow(0 0 5px var(--cyan));
+}
+.corner.tl { top: 15px; left: 15px; border-right: none; border-bottom: none; }
+.corner.tr { top: 15px; right: 15px; border-left: none; border-bottom: none; }
+.corner.bl { bottom: 15px; left: 15px; border-right: none; border-top: none; }
+.corner.br { bottom: 15px; right: 15px; border-left: none; border-top: none; }
+
+.scanline { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 5; }
+.scanline::before {
+  content: ''; position: absolute; top: -100%; left: 0; right: 0; height: 100%;
+  background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.15), transparent);
+  animation: scan 4s linear infinite;
+}
+@keyframes scan { 0% { top: -100%; } 100% { top: 100%; } }
+
+.crt::after {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px, transparent 1px, transparent 3px);
+  pointer-events: none; z-index: 6;
+}
+
+.rec-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--red); box-shadow: 0 0 10px var(--red);
+  animation: blink 1s infinite;
+}
+@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.2; } }
+
+.radar {
+  position: absolute; bottom: 15px; right: 15px;
+  width: 45px; height: 45px; border-radius: 50%;
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  z-index: 7; overflow: hidden;
+}
+.radar::before {
+  content: ''; position: absolute; inset: 0;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(0, 240, 255, 0.5) 30deg, transparent 60deg);
+  animation: radarSpin 2s linear infinite;
+}
+@keyframes radarSpin { to { transform: rotate(360deg); } }
+
+.flash-overlay {
+  position: absolute; inset: 0; background: white; opacity: 0;
+  pointer-events: none; z-index: 20;
+}
+.flash-overlay.active { animation: flash 0.3s; }
+@keyframes flash { 0% { opacity: 0; } 20% { opacity: 0.85; } 100% { opacity: 0; } }
+
+/* Top Bar */
+.top-bar {
+  position: absolute; top: 0; left: 0; right: 0;
+  padding: 12px 15px; padding-top: max(15px, env(safe-area-inset-top));
+  background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+  display: flex; justify-content: space-between; align-items: center;
+  z-index: 15;
+  transition: opacity 0.3s, transform 0.3s;
+}
+.top-bar.hidden { opacity: 0; transform: translateY(-100%); pointer-events: none; }
+
+/* Bottom Bar (Controls) */
+.bottom-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 15px; padding-bottom: max(20px, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+  z-index: 15;
+  transition: opacity 0.3s, transform 0.3s;
+}
+.bottom-bar.hidden { opacity: 0; transform: translateY(100%); pointer-events: none; }
+
+/* Buttons */
+.btn-icon {
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 20, 35, 0.7);
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  border-radius: 8px;
+  backdrop-filter: blur(5px);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-icon:active { transform: scale(0.9); background: rgba(0, 240, 255, 0.2); }
+.btn-icon.danger { color: var(--red); border-color: rgba(255, 51, 85, 0.5); }
+.btn-icon.magenta { color: var(--magenta); border-color: rgba(255, 0, 170, 0.5); }
+
+.btn-capture {
+  width: 70px; height: 70px;
+  border-radius: 50%;
+  background: transparent;
+  border: 4px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s;
+}
+.btn-capture::after {
+  content: ''; position: absolute; inset: 4px;
+  border-radius: 50%; background: var(--cyan);
+  opacity: 0.8;
+  box-shadow: 0 0 10px var(--cyan);
+}
+.btn-capture:active { transform: scale(0.9); }
+.btn-capture:active::after { opacity: 1; background: white; }
+.btn-capture.disabled { opacity: 0.3; pointer-events: none; }
+
+/* Panels / Sheets */
+.sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  z-index: 100; opacity: 0; pointer-events: none;
+  transition: opacity 0.3s;
+}
+.sheet-backdrop.show { opacity: 1; pointer-events: auto; }
+
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  max-height: 85vh; overflow-y: auto;
+  background: var(--bg);
+  border-top: 2px solid var(--cyan);
+  border-radius: 16px 16px 0 0;
+  z-index: 101;
+  transform: translateY(100%);
+  transition: transform 0.3s ease-out;
+  padding: 20px; padding-bottom: max(20px, env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 30px rgba(0, 240, 255, 0.2);
+}
+.sheet.show { transform: translateY(0); }
+.sheet-handle {
+  width: 40px; height: 4px; background: var(--cyan);
+  border-radius: 2px; margin: -10px auto 15px;
+  box-shadow: 0 0 10px var(--cyan);
+}
+
+.data-row {
+  display: flex; justify-content: space-between;
+  padding: 8px 0; border-bottom: 1px dashed rgba(0, 240, 255, 0.15);
+  font-size: 13px;
+}
+.data-row .label { color: var(--muted); letter-spacing: 1px; font-size: 11px; }
+.data-row .value { color: var(--cyan); text-align: right; }
+
+.filter-btn {
+  background: rgba(0, 240, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 8px 14px; font-size: 11px;
+  cursor: pointer; transition: all 0.2s;
+  border-radius: 6px;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.filter-btn.active, .filter-btn:active {
+  border-color: var(--cyan); color: var(--cyan);
+  background: rgba(0, 240, 255, 0.15);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+}
+
+.photo-card {
+  background: rgba(5, 10, 20, 0.8);
+  border: 1px solid var(--border);
+  overflow: hidden; border-radius: 8px;
+}
+
+.toast {
+  position: fixed; top: 20px; left: 50%; transform: translate(-50%, -150%);
+  background: rgba(5, 15, 25, 0.95);
+  border: 1px solid var(--cyan);
+  padding: 10px 20px; color: var(--cyan);
+  z-index: 2000; font-size: 12px;
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  border-radius: 6px; letter-spacing: 1px;
+  transition: transform 0.3s; white-space: nowrap;
+}
+.toast.show { transform: translate(-50%, 0); }
+.toast.error { border-color: var(--red); color: var(--red); box-shadow: 0 0 20px rgba(255, 51, 85, 0.3); }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 240, 255, 0.3); border-radius: 2px; }
+
+.start-screen {
+  position: fixed; inset: 0; z-index: 9999;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: opacity 0.5s, visibility 0.5s;
+}
+.start-screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.pulse-green {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 8px var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Hide native scrollbar for sheet content if needed */
+.sheet::-webkit-scrollbar { width: 0; }
+</style>
+</head>
+<body>
+
+<!-- Start Screen -->
+<div id="startScreen" class="start-screen">
+  <div class="text-center px-8">
+    <div class="w-20 h-20 mx-auto mb-6 flex items-center justify-center border-2 border-cyan-400/50 relative" style="background: rgba(0,240,255,0.05);">
+      <i class="fas fa-video text-cyan-400 text-4xl"></i>
+      <div class="absolute -top-2 -right-2 w-3 h-3 bg-cyan-400 rounded-full" style="box-shadow: 0 0 10px var(--cyan);"></div>
+    </div>
+    <h1 class="font-display font-black text-3xl tracking-widest glow-cyan mb-2">CYBER<span style="color: var(--magenta);">CAM</span></h1>
+    <p class="text-cyan-300/60 text-xs tracking-[0.3em] uppercase mb-10">Timestamp Surveillance v3.0</p>
+    <button id="initBtn" class="btn-cyber w-full max-w-xs mx-auto block py-4 bg-cyan-500/10 border border-cyan-500 text-cyan-400 font-display tracking-widest font-bold active:bg-cyan-500/20">
+      <i class="fas fa-power-off mr-2"></i> INISIALISASI SISTEM
+    </button>
+    <p class="text-cyan-300/40 text-[10px] mt-8 tracking-widest">REQUIRES CAMERA & GPS ACCESS</p>
+  </div>
+</div>
+
+<div id="appContainer">
+  <!-- Camera Frame -->
+  <div class="cam-frame crt">
+    <video id="video" class="video-canvas" autoplay muted playsinline></video>
+    
+    <div class="scanline"></div>
+    <div class="radar"></div>
+    
+    <!-- HUD Overlay -->
+    <div class="hud-overlay">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+      
+      <!-- Top HUD -->
+      <div class="top-bar" id="topBar">
+        <div class="flex items-center gap-2">
+          <div class="rec-dot"></div>
+          <span class="text-red-400 text-[10px] font-bold tracking-widest">REC</span>
+          <span class="text-cyan-400 text-[10px] font-bold tracking-widest ml-2" id="camLabel">CAM-01</span>
+        </div>
+        
+        <div class="text-center">
+          <div class="font-display font-black text-lg md:text-xl text-white glow-cyan tracking-wider" id="hudTime">--:--:--</div>
+          <div class="text-cyan-300 text-[10px] tracking-widest" id="hudDate">---, --/--/----</div>
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <div class="pulse-green"></div>
+          <span class="text-green-400 text-[10px] font-bold tracking-widest" id="gpsStatus">GPS OFF</span>
+        </div>
+      </div>
+      
+      <!-- Bottom HUD (Info text) -->
+      <div class="absolute bottom-0 left-0 right-0 p-4 pb-28 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none">
+        <div class="flex items-end justify-between flex-wrap gap-2">
+          <div>
+            <div class="text-[9px] text-cyan-300/60 uppercase tracking-widest mb-0.5">// LOCATION</div>
+            <div class="text-white text-sm font-bold" id="hudStreet">MEMUAT LOKASI...</div>
+            <div class="text-cyan-300 text-[11px] mt-0.5" id="hudArea">Kecamatan, Kota</div>
+          </div>
+          <div class="text-right text-[10px] text-cyan-300/80 font-mono space-y-0.5">
+            <div>LAT: <span id="latDisplay" class="text-cyan-400">-------</span></div>
+            <div>LON: <span id="lonDisplay" class="text-cyan-400">-------</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="flash-overlay" id="flashOverlay"></div>
+  </div>
+
+  <!-- Bottom Controls -->
+  <div class="bottom-bar" id="bottomBar">
+    <div class="flex items-center justify-around max-w-md mx-auto">
+      <button id="galleryBtn" class="btn-icon">
+        <i class="fas fa-images"></i>
+      </button>
+      <button id="filterBtn" class="btn-icon">
+        <i class="fas fa-sliders"></i>
+      </button>
+      <button id="captureBtn" class="btn-capture disabled"></button>
+      <button id="switchCam" class="btn-icon">
+        <i class="fas fa-arrows-rotate"></i>
+      </button>
+      <button id="fullscreenBtn" class="btn-icon magenta">
+        <i class="fas fa-expand"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Sheets & Modals -->
+<div id="backdrop" class="sheet-backdrop"></div>
+
+<!-- Filter Sheet -->
+<div id="filterSheet" class="sheet">
+  <div class="sheet-handle"></div>
+  <h3 class="font-display text-cyan-400 text-sm tracking-widest mb-4">FILTER VISUAL</h3>
+  <div class="grid grid-cols-3 gap-2 mb-4">
+    <button class="filter-btn active" data-filter="none">NORMAL</button>
+    <button class="filter-btn" data-filter="grayscale(1) contrast(1.2)">MONO</button>
+    <button class="filter-btn" data-filter="sepia(0.5) hue-rotate(180deg) saturate(2)">CYBER</button>
+    <button class="filter-btn" data-filter="contrast(1.4) saturate(1.5)">ENHANCE</button>
+    <button class="filter-btn" data-filter="hue-rotate(90deg) saturate(1.5)">THERMAL</button>
+    <button class="filter-btn" data-filter="invert(1)">INVERT</button>
+  </div>
+  <button class="w-full mt-4 py-3 border border-cyan-500/30 text-cyan-400 text-xs tracking-widest" onclick="closeSheets()">TUTUP</button>
+</div>
+
+<!-- Info/GPS Sheet -->
+<div id="infoSheet" class="sheet">
+  <div class="sheet-handle"></div>
+  <h3 class="font-display text-cyan-400 text-sm tracking-widest mb-4">DATA METADATA</h3>
+  <div class="data-row"><span class="label">DEVICE ID</span><span class="value">CX-0042</span></div>
+  <div class="data-row"><span class="label">LATITUDE</span><span class="value" id="gpsLat">--</span></div>
+  <div class="data-row"><span class="label">LONGITUDE</span><span class="value" id="gpsLon">--</span></div>
+  <div class="data-row"><span class="label">ACCURACY</span><span class="value" id="gpsAcc">--</span></div>
+  <div class="data-row"><span class="label">JALAN</span><span class="value" id="locStreet">-</span></div>
+  <div class="data-row"><span class="label">KECAMATAN</span><span class="value" id="locKec">-</span></div>
+  <div class="data-row"><span class="label">KOTA</span><span class="value" id="locKota">-</span></div>
+  <div class="data-row"><span class="label">PROVINSI</span><span class="value" id="locProv">-</span></div>
+  <button id="refreshGps" class="w-full mt-4 py-3 border border-cyan-500/30 text-cyan-400 text-xs tracking-widest active:bg-cyan-500/10">
+    <i class="fas fa-sync-alt mr-2"></i> REFRESH GPS
+  </button>
+</div>
+
+<!-- Gallery Sheet -->
+<div id="gallerySheet" class="sheet" style="max-height: 90vh;">
+  <div class="sheet-handle"></div>
+  <div class="flex justify-between items-center mb-4">
+    <h3 class="font-display text-cyan-400 text-sm tracking-widest">CAPTURED ARCHIVE</h3>
+    <div class="flex gap-2">
+      <button id="downloadAll" class="text-[10px] text-magenta-400 border border-magenta-400/30 px-2 py-1" style="color: var(--magenta);">DOWNLOAD ALL</button>
+      <button id="clearAll" class="text-[10px] text-red-400 border border-red-400/30 px-2 py-1">CLEAR</button>
+    </div>
+  </div>
+  <div id="gallery" class="grid grid-cols-2 gap-3 pb-10">
+    <div id="emptyGallery" class="col-span-2 text-center py-16">
+      <i class="fas fa-images text-5xl text-cyan-500/20 mb-4"></i>
+      <p class="text-cyan-300/50 font-display tracking-widest text-sm">BELUM ADA FOTO</p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast">
+  <i class="fas fa-check-circle mr-2"></i>
+  <span id="toastMsg">OK</span>
+</div>
+
+<script>
+// State
+const state = {
+  stream: null,
+  facingMode: 'user',
+  currentFilter: 'none',
+  capturedPhotos: [],
+  location: { lat: null, lon: null, alt: null, acc: null, street: '-', kec: '-', kota: '-', prov: '-' },
+  isStealth: false
+};
+
+// Elements
+const video = document.getElementById('video');
+const captureBtn = document.getElementById('captureBtn');
+const flashOverlay = document.getElementById('flashOverlay');
+const topBar = document.getElementById('topBar');
+const bottomBar = document.getElementById('bottomBar');
+
+// Utils
+const pad = n => String(n).padStart(2, '0');
+const days = ['MINGGU','SENIN','SELASA','RABU','KAMIS','JUMAT','SABTU'];
+const months = ['JAN','FEB','MAR','APR','MEI','JUN','JUL','AUG','SEP','OKT','NOV','DES'];
+
+// Clock
+function updateClock() {
+  const now = new Date();
+  const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const date = `${days[now.getDay()]}, ${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()}`;
+  document.getElementById('hudTime').textContent = time;
+  document.getElementById('hudDate').textContent = date;
+}
+setInterval(updateClock, 1000); updateClock();
+
+// Toast
+let toastTimer;
+function showToast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.className = 'toast show' + (type === 'error' ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// Sheets
+function openSheet(id) { document.getElementById(id).classList.add('show'); document.getElementById('backdrop').classList.add('show'); }
+function closeSheets() { document.querySelectorAll('.sheet').forEach(s => s.classList.remove('show')); document.getElementById('backdrop').classList.remove('show'); }
+document.getElementById('backdrop').addEventListener('click', closeSheets);
+
+// Camera
+async function startCamera() {
+  try {
+    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: state.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+    video.srcObject = state.stream;
+    video.classList.toggle('no-mirror', state.facingMode !== 'user');
+    captureBtn.classList.remove('disabled');
+    showToast('KAMERA AKTIF');
+  } catch (err) {
+    showToast('GAGAL AKSES KAMERA', 'error');
+  }
+}
+
+document.getElementById('switchCam').addEventListener('click', () => {
+  state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+  document.getElementById('camLabel').textContent = state.facingMode === 'user' ? 'CAM-01' : 'CAM-02';
+  startCamera();
+});
+
+// GPS
+function activateGps() {
+  if (!navigator.geolocation) return showToast('GPS TIDAK DIDUKUNG', 'error');
+  const gpsStatus = document.getElementById('gpsStatus');
+  gpsStatus.textContent = 'GPS SEARCH';
+  gpsStatus.style.color = 'var(--amber)';
+  
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude, longitude, accuracy } = pos.coords;
+    state.location.lat = latitude; state.location.lon = longitude; state.location.acc = accuracy;
+    document.getElementById('gpsLat').textContent = latitude.toFixed(6);
+    document.getElementById('gpsLon').textContent = longitude.toFixed(6);
+    document.getElementById('gpsAcc').textContent = accuracy.toFixed(1) + ' m';
+    document.getElementById('latDisplay').textContent = latitude.toFixed(6);
+    document.getElementById('lonDisplay').textContent = longitude.toFixed(6);
+    gpsStatus.textContent = 'GPS LOCKED';
+    gpsStatus.style.color = 'var(--green)';
+    reverseGeocode(latitude, longitude);
+  }, err => {
+    gpsStatus.textContent = 'GPS ERROR';
+    gpsStatus.style.color = 'var(--red)';
+    showToast('GPS GAGAL DIAKTIFKAN', 'error');
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+}
+
+async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=id`);
+    const data = await res.json();
+    if (data && data.address) {
+      const addr = data.address;
+      state.location.street = addr.road || addr.pedestrian || addr.residential || 'Jalan tidak diketahui';
+      state.location.kec = addr.suburb || addr.city_district || addr.county || '-';
+      state.location.kota = addr.city || addr.town || addr.village || addr.municipality || '-';
+      state.location.prov = addr.state || '-';
+      
+      document.getElementById('locStreet').textContent = state.location.street;
+      document.getElementById('locKec').textContent = state.location.kec;
+      document.getElementById('locKota').textContent = state.location.kota;
+      document.getElementById('locProv').textContent = state.location.prov;
+      
+      document.getElementById('hudStreet').textContent = state.location.street.toUpperCase();
+      document.getElementById('hudArea').textContent = `${state.location.kec}, ${state.location.kota}`;
+    }
+  } catch (e) { showToast('GAGAL MENGAMBIL LOKASI', 'error'); }
+}
+
+document.getElementById('refreshGps').addEventListener('click', activateGps);
+
+// Capture
+function capturePhoto() {
+  if (!state.stream) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 720;
+  const ctx = canvas.getContext('2d');
+  
+  if (state.facingMode === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+  if (state.currentFilter !== 'none') ctx.filter = state.currentFilter;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = 'none';
+  
+  drawOverlay(ctx, canvas.width, canvas.height);
+  
+  flashOverlay.classList.add('active');
+  setTimeout(() => flashOverlay.classList.remove('active'), 300);
+  
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  const now = new Date();
+  state.capturedPhotos.unshift({
+    id: Date.now(), dataUrl,
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+    date: `${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()}`,
+    location: { ...state.location }
+  });
+  updateGallery();
+  playShutter();
+  showToast('FOTO TERSIMPAN');
+}
+
+function drawOverlay(ctx, w, h) {
+  const now = new Date();
+  const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const date = `${days[now.getDay()]}, ${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()}`;
+  
+  // Gradients
+  const barH = h * 0.25;
+  let grad = ctx.createLinearGradient(0, h - barH, 0, h);
+  grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,0.95)');
+  ctx.fillStyle = grad; ctx.fillRect(0, h - barH, w, barH);
+  
+  grad = ctx.createLinearGradient(0, 0, 0, h * 0.15);
+  grad.addColorStop(0, 'rgba(0,0,0,0.85)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h * 0.15);
+  
+  // Corners
+  const cs = Math.max(24, w * 0.03); const m = w * 0.02;
+  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = Math.max(2, w * 0.003);
+  ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 10;
+  // TL
+  ctx.beginPath(); ctx.moveTo(m, m+cs); ctx.lineTo(m, m); ctx.lineTo(m+cs, m); ctx.stroke();
+  // TR
+  ctx.beginPath(); ctx.moveTo(w-m-cs, m); ctx.lineTo(w-m, m); ctx.lineTo(w-m, m+cs); ctx.stroke();
+  // BL
+  ctx.beginPath(); ctx.moveTo(m, h-m-cs); ctx.lineTo(m, h-m); ctx.lineTo(m+cs, h-m); ctx.stroke();
+  // BR
+  ctx.beginPath(); ctx.moveTo(w-m-cs, h-m); ctx.lineTo(w-m, h-m); ctx.lineTo(w-m, h-m-cs); ctx.stroke();
+  ctx.shadowBlur = 0;
+  
+  // Top Left
+  ctx.textAlign = 'left'; ctx.font = `bold ${Math.max(16, w*0.02)}px Orbitron`;
+  ctx.fillStyle = '#00f0ff'; ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 8;
+  ctx.fillText('CYBERCAM', m+14, m+28);
+  ctx.shadowBlur = 0; ctx.font = `${Math.max(10, w*0.012)}px Share Tech Mono`;
+  ctx.fillStyle = 'rgba(0,240,255,0.7)';
+  ctx.fillText(`REC // CAM-0${state.facingMode === 'user' ? '1' : '2'}`, m+14, m+48);
+  
+  // Top Right GPS
+  ctx.textAlign = 'right'; ctx.font = `${Math.max(11, w*0.013)}px Share Tech Mono`;
+  ctx.fillStyle = '#00f0ff'; ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 5;
+  if (state.location.lat) {
+    ctx.fillText(`LAT: ${state.location.lat.toFixed(6)}`, w-m-14, m+28);
+    ctx.fillText(`LON: ${state.location.lon.toFixed(6)}`, w-m-14, m+48);
+  } else { ctx.fillText('GPS: NO SIGNAL', w-m-14, m+28); }
+  
+  // Bottom Time
+  ctx.textAlign = 'left'; ctx.shadowBlur = 12;
+  ctx.font = `bold ${Math.max(32, w*0.06)}px Orbitron`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(time, m+14, h - m - 40);
+  
+  ctx.shadowBlur = 5; ctx.font = `${Math.max(14, w*0.018)}px Share Tech Mono`;
+  ctx.fillStyle = '#00f0ff';
+  ctx.fillText(date, m+14, h - m - 15);
+  
+  // Bottom Location
+  ctx.textAlign = 'right'; ctx.shadowBlur = 10;
+  ctx.font = `bold ${Math.max(16, w*0.022)}px Share Tech Mono`;
+  ctx.fillStyle = '#ffffff';
+  let street = (state.location.street || 'UNKNOWN').toUpperCase();
+  if (ctx.measureText(street).width > w*0.45) street = street.substring(0, 20) + '...';
+  ctx.fillText(street, w-m-14, h - m - 35);
+  
+  ctx.shadowBlur = 4; ctx.font = `${Math.max(12, w*0.016)}px Share Tech Mono`;
+  ctx.fillStyle = '#00f0ff';
+  ctx.fillText(`${state.location.kec} • ${state.location.kota}`, w-m-14, h - m - 15);
+  
+  ctx.shadowBlur = 0;
+}
+
+function playShutter() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.setValueAtTime(1500, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.08);
+    o.type = 'square'; g.gain.setValueAtTime(0.1, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    o.start(); o.stop(ctx.currentTime + 0.12);
+  } catch(e) {}
+}
+
+captureBtn.addEventListener('click', capturePhoto);
+
+// Gallery
+function updateGallery() {
+  const g = document.getElementById('gallery');
+  document.getElementById('emptyGallery').style.display = state.capturedPhotos.length === 0 ? 'block' : 'none';
+  g.querySelectorAll('.photo-card').forEach(c => c.remove());
+  
+  state.capturedPhotos.forEach((p, idx) => {
+    const card = document.createElement('div');
+    card.className = 'photo-card';
+    card.innerHTML = `
+      <div class="relative">
+        <img src="${p.dataUrl}" class="w-full aspect-video object-cover">
+        <div class="absolute top-1 right-1 bg-black/80 px-1.5 py-0.5 text-[8px] text-red-400 font-mono border border-red-400/30">SAVED</div>
+      </div>
+      <div class="p-2 space-y-1">
+        <div class="text-[10px] text-white font-bold">${p.time} • ${p.date}</div>
+        <div class="text-[9px] text-cyan-300/80 leading-tight truncate">${p.location.street}, ${p.location.kec}, ${p.location.kota}</div>
+        <div class="flex gap-1 pt-1">
+          <button class="dl-btn flex-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[9px] py-1" data-idx="${idx}">UNDUH</button>
+          <button class="del-btn bg-red-500/10 border border-red-500/30 text-red-400 text-[9px] py-1 px-2" data-idx="${idx}"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>`;
+    g.appendChild(card);
+  });
+  
+  g.querySelectorAll('.dl-btn').forEach(b => b.addEventListener('click', () => {
+    const p = state.capturedPhotos[parseInt(b.dataset.idx)];
+    const a = document.createElement('a'); a.href = p.dataUrl;
+    a.download = `cybercam_${p.id}.jpg`; a.click();
+  }));
+  
+  g.querySelectorAll('.del-btn').forEach(b => b.addEventListener('click', () => {
+    state.capturedPhotos.splice(parseInt(b.dataset.idx), 1); updateGallery();
+  }));
+}
+
+document.getElementById('galleryBtn').addEventListener('click', () => openSheet('gallerySheet'));
+document.getElementById('filterBtn').addEventListener('click', () => openSheet('filterSheet'));
+document.getElementById('infoBtn')?.addEventListener('click', () => openSheet('infoSheet'));
+
+// Filters
+document.querySelectorAll('.filter-btn').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.filter-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); state.currentFilter = b.dataset.filter;
+  video.style.filter = state.currentFilter; closeSheets();
+}));
+
+document.getElementById('downloadAll').addEventListener('click', () => {
+  if (state.capturedPhotos.length === 0) return showToast('KOSONG', 'error');
+  state.capturedPhotos.forEach((p, i) => setTimeout(() => {
+    const a = document.createElement('a'); a.href = p.dataUrl; a.download = `cybercam_${p.id}.jpg`; a.click();
+  }, i * 200));
+  showToast(`MENGUNDUH ${state.capturedPhotos.length} FOTO`);
+});
+
+document.getElementById('clearAll').addEventListener('click', () => {
+  state.capturedPhotos = []; updateGallery(); showToast('SEMUA DIHAPUS');
+});
+
+// Fullscreen & Stealth Mode
+document.getElementById('fullscreenBtn').addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => showToast('FULLSCREEN GAGAL', 'error'));
+    document.getElementById('fullscreenBtn').innerHTML = '<i class="fas fa-compress"></i>';
+  } else {
+    document.exitFullscreen();
+    document.getElementById('fullscreenBtn').innerHTML = '<i class="fas fa-expand"></i>';
+  }
+});
+
+// Stealth Mode: Tap di tengah layar untuk hide UI
+let tapTimer;
+video.addEventListener('click', () => {
+  // Hindari konflik dengan tombol
+  clearTimeout(tapTimer);
+  tapTimer = setTimeout(() => {
+    state.isStealth = !state.isStealth;
+    topBar.classList.toggle('hidden', state.isStealth);
+    bottomBar.classList.toggle('hidden', state.isStealth);
+  }, 150);
+});
+
+// Inisialisasi
+document.getElementById('initBtn').addEventListener('click', async () => {
+  document.getElementById('startScreen').classList.add('hidden');
+  await startCamera();
+  activateGps();
+});
+
+// Mencegah zoom gesture di iOS
+document.addEventListener('gesturestart', e => e.preventDefault());
+</script>
+<script src="cordova.js"></script>
+</body>
+</html>
